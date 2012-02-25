@@ -33,7 +33,7 @@ OPTIMIZE :=-O3 -g
 DLL_SUFFIX := so
 DLL_COMMAND := -shared
 FLAT_NAMESPACE :=
-dependson := $(shell cat depends)
+dependson := 
 
 HEADERS  :=-I. -I./source
 others := $(dependson)

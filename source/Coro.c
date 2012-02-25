@@ -33,12 +33,15 @@
 	before the setjmp occurs would be helpful also.
  */
 
-#include "Base.h"
-#include "Coro.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+#include <time.h>
+#include <setjmp.h>
+#include <stdarg.h>
+#include <string.h>
+#include "Coro.h"
 #include "taskimpl.h"
 
 #ifdef USE_VALGRIND
@@ -69,7 +72,7 @@ static CallbackBlock globalCallbackBlock;
 
 Coro *Coro_new(void)
 {
-	Coro *self = (Coro *)io_calloc(1, sizeof(Coro));
+	Coro *self = (Coro *)calloc(1, sizeof(Coro));
 	self->requestedStackSize = CORO_DEFAULT_STACK_SIZE;
 	self->allocatedStackSize = 0;
 
@@ -85,14 +88,14 @@ void Coro_allocStackIfNeeded(Coro *self)
 {
 	if (self->stack && self->requestedStackSize < self->allocatedStackSize)
 	{
-		io_free(self->stack);
+		free(self->stack);
 		self->stack = NULL;
 		self->requestedStackSize = 0;
 	}
 
 	if (!self->stack)
 	{
-		self->stack = (void *)io_calloc(1, self->requestedStackSize + 16);
+		self->stack = (void *)calloc(1, self->requestedStackSize + 16);
 		self->allocatedStackSize = self->requestedStackSize;
 		//printf("Coro_%p allocating stack size %i\n", (void *)self, self->requestedStackSize);
 		STACK_REGISTER(self);
@@ -113,12 +116,12 @@ void Coro_free(Coro *self)
 #endif
 	if (self->stack)
 	{
-		io_free(self->stack);
+		free(self->stack);
 	}
 
-	//printf("Coro_%p io_free\n", (void *)self);
+	//printf("Coro_%p free\n", (void *)self);
 
-	io_free(self);
+	free(self);
 }
 
 // stack
@@ -136,8 +139,8 @@ size_t Coro_stackSize(Coro *self)
 void Coro_setStackSize_(Coro *self, size_t sizeInBytes)
 {
 	self->requestedStackSize = sizeInBytes;
-	//self->stack = (void *)io_realloc(self->stack, sizeInBytes);
-	//printf("Coro_%p io_reallocating stack size %i\n", (void *)self, sizeInBytes);
+	//self->stack = (void *)realloc(self->stack, sizeInBytes);
+	//printf("Coro_%p reallocating stack size %i\n", (void *)self, sizeInBytes);
 }
 
 #if __GNUC__ == 4

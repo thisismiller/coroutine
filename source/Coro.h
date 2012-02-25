@@ -4,7 +4,7 @@
 #ifndef CORO_DEFINED
 #define CORO_DEFINED 1
 
-#include "Common.h"
+//#include "Common.h"
 //#include "PortableUContext.h"
 #include "taskimpl.h"
 
