@@ -39,9 +39,14 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sched.h>
-#include <signal.h>
 #if USE_UCONTEXT
-#include <ucontext.h>
+#include <bits/sigstack.h>
+#  define __USE_XOPEN2K8
+#  include <signal.h>
+#  include <sys/ucontext.h>
+#  undef __USE_XOPEN2K8
+#else
+#  include <signal.h>
 #endif
 #include <sys/utsname.h>
 #include <inttypes.h>

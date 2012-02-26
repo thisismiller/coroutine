@@ -57,8 +57,10 @@
 #if defined(USE_FIBERS)
 	#define CORO_IMPLEMENTATION "fibers"
 #elif defined(USE_UCONTEXT)
+#define __USE_XOPEN2K8
 	#include <sys/ucontext.h>
 	#define CORO_IMPLEMENTATION "ucontext"
+#undef __USE_XOPEN2K8
 #elif defined(USE_SETJMP)
 	#include <setjmp.h>
 	#define CORO_IMPLEMENTATION "setjmp"
