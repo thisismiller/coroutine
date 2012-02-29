@@ -33,6 +33,7 @@
 	before the setjmp occurs would be helpful also.
  */
 
+#include "Coro.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,8 +42,6 @@
 #include <setjmp.h>
 #include <stdarg.h>
 #include <string.h>
-#include "Coro.h"
-#include "taskimpl.h"
 
 #ifdef USE_VALGRIND
 #include <valgrind/valgrind.h>
@@ -62,18 +61,41 @@ VALGRIND_STACK_DEREGISTER((coro)->valgrindStackId)
 #define STACK_DEREGISTER(coro)
 #endif
 
-typedef struct CallbackBlock
-{
-	void *context;
-	CoroStartCallback *func;
-} CallbackBlock;
+#if defined(__SYMBIAN32__)
+	#define CORO_STACK_SIZE     8192
+	#define CORO_STACK_SIZE_MIN 1024
+#else
+	//#define CORO_DEFAULT_STACK_SIZE     (65536/2)
+	//#define CORO_DEFAULT_STACK_SIZE  (65536*4)
 
+	//128k needed on PPC due to parser
+	#define CORO_DEFAULT_STACK_SIZE (128*1024)
+	#define CORO_STACK_SIZE_MIN 8192
+#endif
+
+#ifdef USE_SETJMP
 static CallbackBlock globalCallbackBlock;
+#endif
+
+static size_t defaultStackSize = CORO_DEFAULT_STACK_SIZE;
+
+static void Coro_initializeCoro(Coro *self, void *arg); // private
+
+void Coro_setDefaultStackSize(size_t defaultSize)
+{
+  defaultStackSize = defaultSize;
+}
 
 Coro *Coro_new(void)
 {
 	Coro *self = (Coro *)calloc(1, sizeof(Coro));
-	self->requestedStackSize = CORO_DEFAULT_STACK_SIZE;
+  Coro_init(self);
+  return self;
+}
+
+void Coro_init(Coro *self)
+{
+	self->requestedStackSize = defaultStackSize;
 	self->allocatedStackSize = 0;
 
 #ifdef USE_FIBERS
@@ -81,7 +103,6 @@ Coro *Coro_new(void)
 #else
 	self->stack = NULL;
 #endif
-	return self;
 }
 
 void Coro_allocStackIfNeeded(Coro *self)
@@ -102,7 +123,7 @@ void Coro_allocStackIfNeeded(Coro *self)
 	}
 }
 
-void Coro_free(Coro *self)
+void Coro_destroy(Coro *self)
 {
 #ifdef USE_FIBERS
 	// If this coro has a fiber, delete it.
@@ -118,9 +139,13 @@ void Coro_free(Coro *self)
 	{
 		free(self->stack);
 	}
+}
 
 	//printf("Coro_%p free\n", (void *)self);
 
+void Coro_free(Coro *self)
+{
+  Coro_destroy(self);
 	free(self);
 }
 
@@ -136,7 +161,7 @@ size_t Coro_stackSize(Coro *self)
 	return self->requestedStackSize;
 }
 
-void Coro_setStackSize_(Coro *self, size_t sizeInBytes)
+void Coro_setStackSize(Coro *self, size_t sizeInBytes)
 {
 	self->requestedStackSize = sizeInBytes;
 	//self->stack = (void *)realloc(self->stack, sizeInBytes);
@@ -193,27 +218,24 @@ void Coro_initializeMainCoro(Coro *self)
 #endif
 }
 
-void Coro_startCoro_(Coro *self, Coro *other, void *context, CoroStartCallback *callback)
+void Coro_setup(Coro *self, CoroStartCallback *callback, void *context)
 {
-	CallbackBlock sblock;
-	CallbackBlock *block = &sblock;
 	//CallbackBlock *block = malloc(sizeof(CallbackBlock)); // memory leak
-	block->context = context;
-	block->func    = callback;
+	self->cbBlock.func    = callback;
+	self->cbBlock.context = context;
 	
-	Coro_allocStackIfNeeded(other);
-	Coro_setup(other, block);
-	Coro_switchTo_(self, other);
+	Coro_allocStackIfNeeded(self);
+	Coro_initializeCoro(self, &self->cbBlock);
 }
 
 /*
-void Coro_startCoro_(Coro *self, Coro *other, void *context, CoroStartCallback *callback)
+void Coro_startCoro(Coro *self, Coro *other, void *context, CoroStartCallback *callback)
 {
 	globalCallbackBlock.context = context;
 	globalCallbackBlock.func    = callback;
 	Coro_allocStackIfNeeded(other);
-	Coro_setup(other, &globalCallbackBlock);
-	Coro_switchTo_(self, other);
+	Coro_initializeCoro(other, &globalCallbackBlock);
+	Coro_switchTo(self, other);
 }
 */
 
@@ -261,7 +283,7 @@ void Coro_UnsupportedPlatformError(void)
 }
 
 
-void Coro_switchTo_(Coro *self, Coro *next)
+void Coro_switchTo(Coro *self, Coro *next)
 {
 #if defined(__SYMBIAN32__)
 	ProcessUIEvent();
@@ -281,7 +303,7 @@ void Coro_switchTo_(Coro *self, Coro *next)
 
 #if defined(USE_SETJMP) && defined(__x86_64__)
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	/* since ucontext seems to be broken on amg64 */
 
@@ -313,7 +335,7 @@ void Coro_setup(Coro *self, void *arg)
 
 typedef void (*makecontext_func)(void);
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	ucontext_t *ucp = (ucontext_t *) &self->env;
 
@@ -331,7 +353,7 @@ void Coro_setup(Coro *self, void *arg)
 
 typedef void (*makecontext_func)(void);
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	ucontext_t *ucp = (ucontext_t *) &self->env;
 
@@ -355,7 +377,7 @@ void Coro_setup(Coro *self, void *arg)
 
 #elif defined(USE_FIBERS)
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	// If this coro was recycled and already has a fiber, delete it.
 	// Don't delete the main fiber. We don't want to commit suicide.
@@ -378,7 +400,7 @@ void Coro_setup(Coro *self, void *arg)
 
 #define buf (self->env)
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	setjmp(buf);
 	buf[7] = (long)(Coro_stack(self) + Coro_stackSize(self) - 16);
@@ -389,7 +411,7 @@ void Coro_setup(Coro *self, void *arg)
 
 #elif defined(__SYMBIAN32__)
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	/*
 	setjmp/longjmp is flakey under Symbian.
@@ -413,7 +435,7 @@ void Coro_setup(Coro *self, void *arg)
 #define setjmp  _setjmp
 #define longjmp _longjmp
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	size_t *sp = (size_t *)(((intptr_t)Coro_stack(self)
 						+ Coro_stackSize(self) - 64 + 15) & ~15);
@@ -434,7 +456,7 @@ void Coro_setup(Coro *self, void *arg)
 }
 
 /*
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	size_t *sp = (size_t *)(((intptr_t)Coro_stack(self)
 						+ Coro_stackSize(self) - 64 + 15) & ~15);
@@ -457,7 +479,7 @@ void Coro_setup(Coro *self, void *arg)
 
 #define buf (self->env)
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	void *stack = Coro_stack(self);
 	size_t stacksize = Coro_stackSize(self);
@@ -475,7 +497,7 @@ void Coro_setup(Coro *self, void *arg)
 
 #define buf (self->env)
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	setjmp(buf);
 	buf[8] = (int)Coro_stack(self) + (int)Coro_stackSize(self) - 16;
@@ -484,7 +506,7 @@ void Coro_setup(Coro *self, void *arg)
 
 #else
 
-#error "Coro.c Error: Coro_setup() function needs to be defined for this platform."
+#error "Coro.c Error: Coro_initializeCoro() function needs to be defined for this platform."
 
 #endif
 
@@ -499,7 +521,7 @@ void Coro_setup(Coro *self, void *arg)
 #define setjmp  _setjmp
 #define longjmp _longjmp
 
- void Coro_setup(Coro *self, void *arg)
+ void Coro_initializeCoro(Coro *self, void *arg)
  {
 	 size_t *sp = (size_t *)(((intptr_t)Coro_stack(self) + Coro_stackSize(self) - 64 + 15) & ~15);
 
@@ -520,7 +542,7 @@ void Coro_setup(Coro *self, void *arg)
 
 #define buf (self->env)
 
- void Coro_setup(Coro *self, void *arg)
+ void Coro_initializeCoro(Coro *self, void *arg)
  {
 	 size_t *sp = (size_t *)((intptr_t)Coro_stack(self) + Coro_stackSize(self));
 
@@ -534,7 +556,7 @@ void Coro_setup(Coro *self, void *arg)
 
 /* Solaris supports ucontext - so we don't need this stuff anymore
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	// this bit goes before the setjmp call
 	// Solaris 9 Sparc with GCC
@@ -573,7 +595,7 @@ void Coro_setup(Coro *self, void *arg)
 
 #elif defined(sgi) && defined(_IRIX4_SIGJBLEN) // Irix/SGI
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	setjmp(buf);
 	buf[JB_SP] = (__uint64_t)((char *)stack + stacksize - 8);
@@ -628,7 +650,7 @@ return;
 
 #elif defined(__MINGW32__)
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	setjmp(buf);
 	buf[4] = (int)((unsigned char *)stack + stacksize - 16);   // esp
@@ -637,7 +659,7 @@ void Coro_setup(Coro *self, void *arg)
 
 #elif defined(_MSC_VER)
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	setjmp(buf);
 	// win32 visual c
@@ -675,7 +697,7 @@ Coro_UnsupportedPlatformError();
 
 #elif defined(__NetBSD__)
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	setjmp(buf);
 #if defined(_JB_ATTRIBUTES)
@@ -692,7 +714,7 @@ void Coro_setup(Coro *self, void *arg)
 
 // Solaris supports ucontext - so we don't need this stuff anymore
 
-void Coro_setup(Coro *self, void *arg)
+void Coro_initializeCoro(Coro *self, void *arg)
 {
 	// this bit goes before the setjmp call
 	// Solaris 9 Sparc with GCC

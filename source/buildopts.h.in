@@ -1,0 +1,17 @@
+#ifndef CORO_BUILDOPTS
+#define CORO_BUILDOPTS
+
+#undef USE_FIBERS
+#undef USE_UCONTEXT
+#undef USE_SETJMP
+#undef USE_VALGRIND
+
+#define CORO_IMPLEMENTATION "@CORO_IMPLEMENTATION@"
+#define @CORO_USE_TYPE@ 1
+#define @ENABLE_VALGRIND@ 1
+
+#ifdef ENABLE_VALGRIND
+#  define USE_VALGRIND
+#endif
+
+#endif

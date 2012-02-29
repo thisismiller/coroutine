@@ -4,20 +4,105 @@
 #ifndef CORO_DEFINED
 #define CORO_DEFINED 1
 
+#include "buildopts.h"
 //#include "Common.h"
 //#include "PortableUContext.h"
-#include "taskimpl.h"
 
-#if defined(__SYMBIAN32__)
-	#define CORO_STACK_SIZE     8192
-	#define CORO_STACK_SIZE_MIN 1024
-#else
-	//#define CORO_DEFAULT_STACK_SIZE     (65536/2)
-	//#define CORO_DEFAULT_STACK_SIZE  (65536*4)
 
-	//128k needed on PPC due to parser
-	#define CORO_DEFAULT_STACK_SIZE (128*1024)
-	#define CORO_STACK_SIZE_MIN 8192
+// Needed for ucontext to compile
+#ifndef _BSD_SOURCE
+#  define _BSD_SOURCE
+#endif
+
+#ifdef USE_UCONTEXT
+#  include <ucontext.h>
+#endif
+#if USE_SETJMP
+#  include <setjmp.h>
+#endif
+#include <stdarg.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <assert.h>
+#include <time.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sched.h>
+#include <sys/utsname.h>
+#include <inttypes.h>
+#include <signal.h>
+
+#if defined(__sun__)
+#	define __EXTENSIONS__ 1 /* SunOS */
+#	if defined(__SunOS5_6__) || defined(__SunOS5_7__) || defined(__SunOS5_8__)
+		/* NOT USING #define __MAKECONTEXT_V2_SOURCE 1 / * SunOS */
+#	else
+#		define __MAKECONTEXT_V2_SOURCE 1
+#	endif
+#endif
+
+//#define USE_UCONTEXT 1
+
+#if defined(__OpenBSD__)
+#undef USE_UCONTEXT
+#define USE_UCONTEXT 0
+#endif
+
+#if defined(__APPLE__)
+#include <AvailabilityMacros.h>
+#if defined(MAC_OS_X_VERSION_10_5)
+#undef USE_UCONTEXT
+#define USE_UCONTEXT 0
+#endif
+#endif
+
+#define nil ((void*)0)
+#define nelem(x) (sizeof(x)/sizeof((x)[0]))
+
+#if defined(__FreeBSD__) && __FreeBSD__ < 5
+extern	int		getmcontext(mcontext_t*);
+extern	void		setmcontext(const mcontext_t*);
+#define	setcontext(u)	setmcontext(&(u)->uc_mcontext)
+#define	getcontext(u)	getmcontext(&(u)->uc_mcontext)
+extern	int		swapcontext(ucontext_t*, const ucontext_t*);
+extern	void		makecontext(ucontext_t*, void(*)(), int, ...);
+#endif
+
+#if defined(__APPLE__)
+#	define mcontext libthread_mcontext
+#	define mcontext_t libthread_mcontext_t
+#	define ucontext libthread_ucontext
+#	define ucontext_t libthread_ucontext_t
+#	if defined(__i386__)
+#		include "386-ucontext.h"
+#	elif defined(__x86_64__)
+#		include "amd64-ucontext.h"
+#	else
+#		include "power-ucontext.h"
+#	endif	
+#endif
+
+#if defined(__OpenBSD__)
+#	define mcontext libthread_mcontext
+#	define mcontext_t libthread_mcontext_t
+#	define ucontext libthread_ucontext
+#	define ucontext_t libthread_ucontext_t
+#	if defined __i386__
+#		include "386-ucontext.h"
+#	else
+#		include "power-ucontext.h"
+#	endif
+extern pid_t rfork_thread(int, void*, int(*)(void*), void*);
+#endif
+
+#if defined(__arm__)
+int getmcontext(mcontext_t*);
+void setmcontext(const mcontext_t*);
+#define	setcontext(u)	setmcontext(&(u)->uc_mcontext)
+#define	getcontext(u)	getmcontext(&(u)->uc_mcontext)
 #endif
 
 #if !defined(__MINGW32__) && defined(WIN32)
@@ -31,44 +116,17 @@
 #define CORO_API
 #endif
 
-/*
-#if defined(__amd64__) && !defined(__x86_64__)
-	#define __x86_64__ 1
-#endif
-*/
-
-// Pick which coro implementation to use
-// The make file can set -DUSE_FIBERS, -DUSE_UCONTEXT or -DUSE_SETJMP to force this choice.
-#if !defined(USE_FIBERS) && !defined(USE_UCONTEXT) && !defined(USE_SETJMP)
-
-#if defined(WIN32) && defined(HAS_FIBERS)
-#	define USE_FIBERS
-#elif defined(HAS_UCONTEXT)
-//#elif defined(HAS_UCONTEXT) && !defined(__x86_64__)
-#	if !defined(USE_UCONTEXT)
-#		define USE_UCONTEXT
-#	endif
-#else
-#	define USE_SETJMP
-#endif
-
-#endif
-
-#if defined(USE_FIBERS)
-	#define CORO_IMPLEMENTATION "fibers"
-#elif defined(USE_UCONTEXT)
-#define __USE_XOPEN2K8
-	#include <sys/ucontext.h>
-	#define CORO_IMPLEMENTATION "ucontext"
-#undef __USE_XOPEN2K8
-#elif defined(USE_SETJMP)
-	#include <setjmp.h>
-	#define CORO_IMPLEMENTATION "setjmp"
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef void (CoroStartCallback)(void *);
+
+typedef struct CallbackBlock
+{
+	CoroStartCallback *func;
+	void *context;
+} CallbackBlock;
 
 typedef struct Coro Coro;
 
@@ -77,6 +135,7 @@ struct Coro
 	size_t requestedStackSize;
 	size_t allocatedStackSize;
 	void *stack;
+  CallbackBlock cbBlock;
 
 #ifdef USE_VALGRIND
 	unsigned int valgrindStackId;
@@ -94,23 +153,24 @@ struct Coro
 };
 
 CORO_API Coro *Coro_new(void);
+CORO_API void Coro_init(Coro *self);
 CORO_API void Coro_free(Coro *self);
+CORO_API void Coro_destroy(Coro *self);
 
 // stack
 
 CORO_API void *Coro_stack(Coro *self);
 CORO_API size_t Coro_stackSize(Coro *self);
-CORO_API void Coro_setStackSize_(Coro *self, size_t sizeInBytes);
+CORO_API void Coro_setStackSize(Coro *self, size_t sizeInBytes);
 CORO_API size_t Coro_bytesLeftOnStack(Coro *self);
 CORO_API int Coro_stackSpaceAlmostGone(Coro *self);
+CORO_API void Coro_setDefaultStackSize(size_t defaultSize);
 
 CORO_API void Coro_initializeMainCoro(Coro *self);
 
-typedef void (CoroStartCallback)(void *);
 
-CORO_API void Coro_startCoro_(Coro *self, Coro *other, void *context, CoroStartCallback *callback);
-CORO_API void Coro_switchTo_(Coro *self, Coro *next);
-CORO_API void Coro_setup(Coro *self, void *arg); // private
+CORO_API void Coro_setup(Coro *self, CoroStartCallback *callback, void *context);
+CORO_API void Coro_switchTo(Coro *self, Coro *next);
 
 #ifdef __cplusplus
 }

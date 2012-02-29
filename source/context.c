@@ -1,6 +1,6 @@
 /* Copyright (c) 2005-2006 Russ Cox, MIT; see COPYRIGHT */
 
-#include "taskimpl.h"
+#include "Coro.h"
 
 #if defined(__APPLE__)
 #if defined(__i386__)

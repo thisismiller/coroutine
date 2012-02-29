@@ -12,7 +12,7 @@ void secondTask(void *context)
 	while (1) 
 	{
 		printf("secondTask: %d %d\n", (int)Coro_bytesLeftOnStack(secondCoro), num++);
-		Coro_switchTo_(secondCoro, firstCoro);
+		Coro_switchTo(secondCoro, firstCoro);
 	}
 }
 
@@ -23,12 +23,13 @@ void firstTask(void *context)
 	
 	printf("firstTask created with value %d\n", *(int *)context);
 	secondCoro = Coro_new();
-	Coro_startCoro_(firstCoro, secondCoro, (void *)&value, secondTask);
+	Coro_setup(secondCoro, secondTask, (void *)&value);
+	Coro_switchTo(firstCoro, secondCoro);
 	
 	while (1) 
 	{
 		printf("firstTask:  %d %d\n", (int)Coro_bytesLeftOnStack(firstCoro), num++);
-		Coro_switchTo_(firstCoro, secondCoro);
+		Coro_switchTo(firstCoro, secondCoro);
 	}
 }
 
@@ -40,5 +41,6 @@ int main()
 	Coro_initializeMainCoro(mainCoro);
 	
 	firstCoro = Coro_new();
-	Coro_startCoro_(mainCoro, firstCoro, (void *)&value, firstTask);
+	Coro_setup(firstCoro, firstTask, (void *)&value);
+	Coro_switchTo(mainCoro, firstCoro);
 }
