@@ -21,15 +21,16 @@ void WorkWork(void *data) {
       wd->other->run();
     }
 
-    cout << "Space left: " << Coroutine::Running().stackSpaceLeft() << endl;
+    cout << "Space left: " << Coroutine::CurrentStackSpaceLeft() << endl;
   }
   // Make sure that all destructors are run before resuming the main thread.
-  Coroutine::Main().run();
+  Coroutine::Yield();
 }
 
 int main() {
   // This program can get by with a tiny stack.
   Coroutine::SetDefaultStackSize(2*1024);
+  Coroutine::SetScheduler(Coroutine::Main());
 
   {
     unique_ptr<WorkData> data1(new WorkData(1));

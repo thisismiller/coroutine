@@ -20,6 +20,14 @@ void Coroutine::KillMain() {
   delete main_coro;
 }
 
+void Coroutine::SetScheduler(const Coroutine &sched) {
+  *main_coro = sched;
+}
+
+void Coroutine::Yield() {
+  main_coro->run();
+}
+
 Coroutine::Coroutine(function<void()> to_run)
   : coro(Coro_new(), &Coro_free)
   , code(to_run)
@@ -40,8 +48,8 @@ void Coroutine::run() {
   Coro_switchTo(old->coro.get(), running->coro.get());
 }
 
-size_t Coroutine::stackSpaceLeft() {
-  return Coro_bytesLeftOnStack(coro.get());
+size_t Coroutine::CurrentStackSpaceLeft() {
+  return Coro_bytesLeftOnStack(running->coro.get());
 }
 
 void Coroutine::Trampoline(void *arg) {

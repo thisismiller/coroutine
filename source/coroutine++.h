@@ -12,12 +12,15 @@ public:
   static Coroutine& Main();
   static Coroutine& Running();
   static void KillMain();
+  static size_t CurrentStackSpaceLeft();
+
+  static void SetScheduler(const Coroutine &scheduler);
+  static void Yield();
 
   Coroutine(std::function<void()> to_run);
   ~Coroutine();
 
   void run();
-  size_t stackSpaceLeft();
 
 private:
   static void Trampoline(void *arg);
@@ -25,7 +28,6 @@ private:
 
   std::shared_ptr<Coro> coro;
   std::function<void()> code;
-  std::shared_ptr<Coro> resume;
 
   static __thread Coroutine* running;
   static __thread Coroutine* main_coro;
