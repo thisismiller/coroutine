@@ -2,7 +2,7 @@ bin_PROGRAMS =
 lib_LTLIBRARIES = libcoroutine.la
 include_HEADERS = coroutine.h coroutine++.h
 
-libcoroutine_la_SOURCES = 386-ucontext.h amd64-ucontext.h asm.S context.c Coro.c Coro.h power-ucontext.h buildopts.h coroutine++.cpp coroutine++.h
+libcoroutine_la_SOURCES = 386-ucontext.h amd64-ucontext.h asm.S context.c Coro.c Coro.h power-ucontext.h buildopts.h coroutine++.cpp coroutine++.h coroutine.h
 libcoroutine_la_LDFLAGS =
 
 clean-local:
